@@ -26,19 +26,34 @@ openai_api_key = os.getenv("OPENAI_API_KEY")
 openai_client = OpenAI(api_key=openai_api_key) if openai_api_key else OpenAI()
 
 
-def get_response(model:str, prompt: str) -> str :
+def _extract_response_text(response: Any) -> str:
+    """Return text from a Responses API response."""
+    if getattr(response, "output_text", None):
+        return response.output_text.strip()
+
+    text_parts = []
+    for item in getattr(response, "output", []) or []:
+        for content in getattr(item, "content", []) or []:
+            text = getattr(content, "text", None)
+            if text:
+                text_parts.append(text)
+    return "\n".join(text_parts).strip()
+
+
+def get_response(model: str, prompt: str) -> str:
     """
     Get a response from the OpenAI API based on the provided model and prompt.
 
     Args:
         model (str): The name of the model to use (e.g., "gpt-3.5-turbo").
         prompt (str): The input prompt to send to the model."""
-    
+
     response = openai_client.responses.create(
         model=model,
-        prompt=prompt
+        input=prompt
     )
-    return response.choices[0].text.strip()
+    return _extract_response_text(response)
+
 
 def load_and_prepare_data(csv_path:str) -> pd.DataFrame:
     """
@@ -159,13 +174,24 @@ def print_html(content: Any, title: str | None = None, is_image: bool = False):
     card = f'<div class="pretty-card">{title_html}{rendered}</div>'
     display(HTML(css + card))
 
-def image_openai_call(model_name: str, prompt: str, media_type:str, b64: str) -> str:
+
+def image_openai_call(model_name: str, prompt: str, media_type: str, b64: str) -> str:
     """
     Make an OpenAI API call to generate an image based on the prompt and return the image URL.
     """
     response = openai_client.responses.create(
         model=model_name,
-        prompt=prompt,
-        media=[{"type": media_type, "data": b64}]
+        input=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "input_text", "text": prompt},
+                    {
+                        "type": "input_image",
+                        "image_url": f"data:{media_type};base64,{b64}",
+                    },
+                ],
+            }
+        ],
     )
-    return response.choices[0].text.strip()
+    return _extract_response_text(response)
